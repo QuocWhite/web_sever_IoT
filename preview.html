@@ -1,91 +1,9 @@
-#include <WiFi.h>
-#include <WebServer.h>
-#include <DHT.h>
-
-// Replace with your network credentials
-const char* ssid     = "Tu nguyen";
-const char* password = "88888888";
-
-// Assign output variables to GPIO pins
-const int output26 = 26;
-const int output27 = 27;
-String output26State = "off";
-String output27State = "off";
-
-// DHT11 sensor settings
-#define DHTPIN 5      // D5 (GPIO5)
-#define DHTTYPE DHT11 // DHT 11
-DHT dht(DHTPIN, DHTTYPE);
-float temperature = 0.0;
-float humidity = 0.0;
-
-// MQ-02 sensor
-#define MQ2_PIN 18   // D18
-String gasState = "SAFE";
-
-// Create a web server object
-WebServer server(80);
-
-// Function to handle turning GPIO 26 on
-void handleGPIO26On() {
-  output26State = "on";
-  digitalWrite(output26, HIGH);
-  handleRoot();
-}
-
-// Function to handle turning GPIO 26 off
-void handleGPIO26Off() {
-  output26State = "off";
-  digitalWrite(output26, LOW);
-  handleRoot();
-}
-
-// Function to handle turning GPIO 28 on
-void handleGPIO27On() {
-  output27State = "on";
-  digitalWrite(output27, HIGH);
-  handleRoot();
-}
-
-// Function to handle turning GPIO 27 off
-void handleGPIO27Off() {
-  output27State = "off";
-  digitalWrite(output27, LOW);
-  handleRoot();
-}
-
-void readMQ2() {
-  int mq2Value = digitalRead(MQ2_PIN);
-  gasState = (mq2Value == LOW) ? "GAS DETECTED " : "SAFE ";
-}
-
-void handleData() {
-  float h = dht.readHumidity();
-  float t = dht.readTemperature();
-  int mq2 = digitalRead(MQ2_PIN);
-
-  String json = "{";
-  json += "\"temperature\":" + String(t,1) + ",";
-  json += "\"humidity\":" + String(h,1) + ",";
-  json += "\"gas\":" + String(mq2 == LOW ? 1 : 0);
-  json += "}";
-
-  server.send(200, "application/json", json);
-}
-
-// Function to handle the root URL and show the current states
-void handleRoot() {
-  // Read MQ-2 digital signal
-  int mq2Value = digitalRead(MQ2_PIN);
-  String gasState = (mq2Value == LOW) ? "GAS DETECTED " : "SAFE ";
-
-  String html = R"rawliteral(
-  <!DOCTYPE html>
-  <html lang="en">
-  <head>
+<!DOCTYPE html>
+<html lang="en">
+<head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ESP32 IoT Monitor</title>
+  <title>ESP32 IoT Monitor — Preview</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -110,6 +28,15 @@ void handleRoot() {
       margin: 0;
       padding: 24px;
       min-height: 100vh;
+    }
+    .banner {
+      background: rgba(210,153,34,.15);
+      border: 1px solid var(--accent-orange);
+      border-radius: 8px;
+      padding: 12px 16px;
+      margin-bottom: 20px;
+      font-size: 0.9rem;
+      color: var(--accent-orange);
     }
     .container { max-width: 720px; margin: 0 auto; }
     h1 {
@@ -221,9 +148,11 @@ void handleRoot() {
     .btn-on { background: var(--accent-green); color: #0d1117; }
     .btn-off { background: var(--border); color: var(--text); margin-left: 8px; }
   </style>
-  </head>
-  <body>
+</head>
+<body>
   <div class="container">
+    <div class="banner">Preview mode — using simulated sensor data (no ESP32 connected)</div>
+
     <h1><span class="status-dot"></span> ESP32 IoT Monitor</h1>
 
     <div class="cards">
@@ -237,7 +166,7 @@ void handleRoot() {
       </div>
       <div class="card">
         <div class="card-title">Gas Sensor</div>
-        <div><span id="gas" class="badge )" + (mq2Value == LOW ? "badge-danger" : "badge-safe") + R"rawliteral(">)"rawliteral" + gasState + R"rawliteral(</span></div>
+        <div><span id="gas" class="badge badge-safe">SAFE</span></div>
       </div>
     </div>
 
@@ -251,15 +180,15 @@ void handleRoot() {
       <div class="gpio-row">
         <span class="gpio-label">GPIO 26</span>
         <span>
-          <a href="/26/on" class="btn btn-on">ON</a>
-          <a href="/26/off" class="btn btn-off">OFF</a>
+          <button class="btn btn-on" onclick="alert('With ESP32: would turn GPIO 26 ON')">ON</button>
+          <button class="btn btn-off" onclick="alert('With ESP32: would turn GPIO 26 OFF')">OFF</button>
         </span>
       </div>
       <div class="gpio-row">
         <span class="gpio-label">GPIO 27</span>
         <span>
-          <a href="/27/on" class="btn btn-on">ON</a>
-          <a href="/27/off" class="btn btn-off">OFF</a>
+          <button class="btn btn-on" onclick="alert('With ESP32: would turn GPIO 27 ON')">ON</button>
+          <button class="btn btn-off" onclick="alert('With ESP32: would turn GPIO 27 OFF')">OFF</button>
         </span>
       </div>
     </div>
@@ -326,83 +255,37 @@ void handleRoot() {
     }
   });
 
-  function updateData() {
-    fetch('/data')
-      .then(res => res.ok ? res.json() : Promise.reject())
-      .then(data => {
-        const time = new Date().toLocaleTimeString();
-        const temp = (data.temperature != null && !isNaN(data.temperature)) ? data.temperature.toFixed(1) : '--';
-        const hum = (data.humidity != null && !isNaN(data.humidity)) ? data.humidity.toFixed(1) : '--';
-
-        document.getElementById('temp').textContent = temp;
-        document.getElementById('hum').textContent = hum;
-
-        const gasEl = document.getElementById('gas');
-        gasEl.textContent = data.gas ? 'GAS DETECTED' : 'SAFE';
-        gasEl.className = 'badge ' + (data.gas ? 'badge-danger' : 'badge-safe');
-
-        if (temp !== '--' && hum !== '--') {
-          if (chart.data.labels.length > 20) {
-            chart.data.labels.shift();
-            chart.data.datasets[0].data.shift();
-            chart.data.datasets[1].data.shift();
-          }
-          chart.data.labels.push(time);
-          chart.data.datasets[0].data.push(parseFloat(data.temperature));
-          chart.data.datasets[1].data.push(parseFloat(data.humidity));
-          chart.update('none');
-        }
-      })
-      .catch(() => {});
+  function mockData() {
+    const t = 20 + Math.random() * 15;
+    const h = 40 + Math.random() * 40;
+    const gas = Math.random() > 0.9;
+    return { temperature: t, humidity: h, gas: gas ? 1 : 0 };
   }
+
+  function updateData() {
+    const data = mockData();
+    const time = new Date().toLocaleTimeString();
+
+    document.getElementById('temp').textContent = data.temperature.toFixed(1);
+    document.getElementById('hum').textContent = data.humidity.toFixed(1);
+
+    const gasEl = document.getElementById('gas');
+    gasEl.textContent = data.gas ? 'GAS DETECTED' : 'SAFE';
+    gasEl.className = 'badge ' + (data.gas ? 'badge-danger' : 'badge-safe');
+
+    if (chart.data.labels.length > 20) {
+      chart.data.labels.shift();
+      chart.data.datasets[0].data.shift();
+      chart.data.datasets[1].data.shift();
+    }
+    chart.data.labels.push(time);
+    chart.data.datasets[0].data.push(data.temperature);
+    chart.data.datasets[1].data.push(data.humidity);
+    chart.update('none');
+  }
+
   updateData();
   setInterval(updateData, 2000);
   </script>
-  </body>
-  </html>
-  )rawliteral";
-
-  server.send(200, "text/html", html);
-}
-
-void setup() {
-  Serial.begin(115200);
-
-  // Initialize the output variables as outputs
-  pinMode(output26, OUTPUT);
-  pinMode(output27, OUTPUT);
-  // Set outputs to LOW
-  digitalWrite(output26, LOW);
-  digitalWrite(output27, LOW);
-  pinMode(MQ2_PIN, INPUT);
-
-  // Connect to Wi-Fi network
-  Serial.print("Connecting to ");
-  Serial.println(ssid);
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.println("");
-  Serial.println("WiFi connected.");
-  Serial.println("IP address: ");
-  Serial.println(WiFi.localIP());
-
-  // Set up the web server to handle different routes
-  server.on("/data", handleData);
-  server.on("/", handleRoot);
-  server.on("/26/on", handleGPIO26On);
-  server.on("/26/off", handleGPIO26Off);
-  server.on("/27/on", handleGPIO27On);
-  server.on("/27/off", handleGPIO27Off);
-
-  // Start the web server
-  server.begin();
-  Serial.println("HTTP server started");
-}
-
-void loop() {
-  // Handle incoming client requests
-  server.handleClient();
-}
+</body>
+</html>
