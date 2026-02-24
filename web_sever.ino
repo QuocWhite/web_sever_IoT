@@ -1,6 +1,7 @@
 #include <WiFi.h>
 #include <WebServer.h>
 #include <DHT.h>
+#include "style.h"
 
 // Replace with your network credentials
 const char* ssid     = "Tu nguyen";
@@ -40,7 +41,7 @@ void handleGPIO26Off() {
   handleRoot();
 }
 
-// Function to handle turning GPIO 28 on
+// Function to handle turning GPIO 27 on
 void handleGPIO27On() {
   output27State = "on";
   digitalWrite(output27, HIGH);
@@ -54,9 +55,8 @@ void handleGPIO27Off() {
   handleRoot();
 }
 
-void readMQ2() {
-  int mq2Value = digitalRead(MQ2_PIN);
-  gasState = (mq2Value == LOW) ? "GAS DETECTED " : "SAFE ";
+void handleStyle() {
+  server.send_P(200, "text/css", STYLE_CSS);
 }
 
 void handleData() {
@@ -67,7 +67,9 @@ void handleData() {
   String json = "{";
   json += "\"temperature\":" + String(t,1) + ",";
   json += "\"humidity\":" + String(h,1) + ",";
-  json += "\"gas\":" + String(mq2 == LOW ? 1 : 0);
+  json += "\"gas\":" + String(mq2 == LOW ? 1 : 0) + ",";
+  json += "\"light\":" + String(output26State == "on" ? 1 : 0) + ",";
+  json += "\"fan\":" + String(output27State == "on" ? 1 : 0);
   json += "}";
 
   server.send(200, "application/json", json);
@@ -89,138 +91,8 @@ void handleRoot() {
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="/style.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <style>
-    :root {
-      --bg: #0f1419;
-      --surface: #1a2332;
-      --border: #2d3a4d;
-      --text: #e6edf3;
-      --text-muted: #8b949e;
-      --accent: #58a6ff;
-      --accent-green: #3fb950;
-      --accent-orange: #d29922;
-      --accent-red: #f85149;
-    }
-    * { box-sizing: border-box; }
-    body {
-      font-family: 'Outfit', sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      margin: 0;
-      padding: 24px;
-      min-height: 100vh;
-    }
-    .container { max-width: 720px; margin: 0 auto; }
-    h1 {
-      font-size: 1.75rem;
-      font-weight: 700;
-      margin-bottom: 24px;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-    h1::before {
-      content: '';
-      width: 8px;
-      height: 28px;
-      background: linear-gradient(180deg, var(--accent), var(--accent-green));
-      border-radius: 4px;
-    }
-    .status-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--accent-green);
-      animation: pulse 2s infinite;
-    }
-    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
-    .cards {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-      gap: 16px;
-      margin-bottom: 24px;
-    }
-    .card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 20px;
-      text-align: center;
-    }
-    .card-title {
-      font-size: 0.8rem;
-      color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      margin-bottom: 8px;
-    }
-    .card-value {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 1.75rem;
-      font-weight: 600;
-    }
-    .card-unit { font-size: 0.9rem; color: var(--text-muted); }
-    .badge {
-      display: inline-block;
-      padding: 6px 14px;
-      border-radius: 20px;
-      font-size: 0.85rem;
-      font-weight: 600;
-    }
-    .badge-safe { background: rgba(63,185,80,.2); color: var(--accent-green); }
-    .badge-danger { background: rgba(248,81,73,.2); color: var(--accent-red); }
-    .chart-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 20px;
-      margin-bottom: 24px;
-    }
-    .chart-card h3 {
-      font-size: 1rem;
-      font-weight: 600;
-      margin: 0 0 16px 0;
-      color: var(--text-muted);
-    }
-    .chart-wrap { height: 200px; position: relative; }
-    .controls {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 24px;
-    }
-    .controls h3 {
-      font-size: 1rem;
-      font-weight: 600;
-      margin: 0 0 20px 0;
-      color: var(--text-muted);
-    }
-    .gpio-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 12px 0;
-      border-bottom: 1px solid var(--border);
-    }
-    .gpio-row:last-of-type { border-bottom: none; }
-    .gpio-label { font-family: 'JetBrains Mono', monospace; font-size: 0.9rem; }
-    .btn {
-      display: inline-block;
-      padding: 10px 24px;
-      border-radius: 8px;
-      font-family: 'Outfit', sans-serif;
-      font-size: 0.9rem;
-      font-weight: 600;
-      text-decoration: none;
-      cursor: pointer;
-      border: none;
-      transition: transform .15s, opacity .15s;
-    }
-    .btn:hover { opacity: .9; transform: translateY(-1px); }
-    .btn-on { background: var(--accent-green); color: #0d1117; }
-    .btn-off { background: var(--border); color: var(--text); margin-left: 8px; }
-  </style>
   </head>
   <body>
   <div class="container">
@@ -237,26 +109,40 @@ void handleRoot() {
       </div>
       <div class="card">
         <div class="card-title">Gas Sensor</div>
-        <div><span id="gas" class="badge )" + (mq2Value == LOW ? "badge-danger" : "badge-safe") + R"rawliteral(">)"rawliteral" + gasState + R"rawliteral(</span></div>
+        <div><span id="gas" class="badge )rawliteral" + String(mq2Value == LOW ? "badge-danger" : "badge-safe") + R"rawliteral("> )rawliteral" + gasState + R"rawliteral(</span></div>
       </div>
     </div>
 
     <div class="chart-card">
-      <h3>Live Readings</h3>
-      <div class="chart-wrap"><canvas id="chart"></canvas></div>
+      <h3>Humidity (%)</h3>
+      <div class="chart-wrap"><canvas id="chart-hum"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <h3>Temperature (°C)</h3>
+      <div class="chart-wrap"><canvas id="chart-temp"></canvas></div>
     </div>
 
     <div class="controls">
       <h3>Output Control</h3>
       <div class="gpio-row">
-        <span class="gpio-label">GPIO 26</span>
+        <span class="device-row">
+          <span class="device-icon device-icon-bulb" id="light-icon" aria-hidden="true">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="28" height="28"><path d="M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7z"/></svg>
+          </span>
+          <span class="gpio-label">Light (GPIO 26)</span>
+        </span>
         <span>
           <a href="/26/on" class="btn btn-on">ON</a>
           <a href="/26/off" class="btn btn-off">OFF</a>
         </span>
       </div>
       <div class="gpio-row">
-        <span class="gpio-label">GPIO 27</span>
+        <span class="device-row">
+          <span class="device-icon device-icon-fan" id="fan-icon" aria-hidden="true">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="28" height="28"><circle cx="12" cy="12" r="9"/><path d="M12 3v4m0 10v4M3 12h4m10 0h4M5.64 5.64l2.83 2.83m5.06 5.06l2.83 2.83M5.64 18.36l2.83-2.83m5.06-5.06l2.83-2.83"/></svg>
+          </span>
+          <span class="gpio-label">Fan (GPIO 27)</span>
+        </span>
         <span>
           <a href="/27/on" class="btn btn-on">ON</a>
           <a href="/27/off" class="btn btn-off">OFF</a>
@@ -266,62 +152,73 @@ void handleRoot() {
   </div>
 
   <script>
-  const ctx = document.getElementById('chart').getContext('2d');
-  const tempGrad = ctx.createLinearGradient(0,0,0,200);
-  tempGrad.addColorStop(0,'rgba(248,81,73,.3)');
-  tempGrad.addColorStop(1,'rgba(248,81,73,0)');
-  const humGrad = ctx.createLinearGradient(0,0,0,200);
+  (function(){
+    var lightOn = )rawliteral" + String(output26State == "on" ? "true" : "false") + R"rawliteral(;
+    var fanOn = )rawliteral" + String(output27State == "on" ? "true" : "false") + R"rawliteral(;
+    var li = document.getElementById('light-icon'), fi = document.getElementById('fan-icon');
+    if (li) li.classList.toggle('lit', lightOn);
+    if (fi) fi.classList.toggle('spinning', fanOn);
+  })();
+  const ctxHum = document.getElementById('chart-hum').getContext('2d');
+  const humGrad = ctxHum.createLinearGradient(0,0,0,200);
   humGrad.addColorStop(0,'rgba(88,166,255,.3)');
   humGrad.addColorStop(1,'rgba(88,166,255,0)');
-
-  const chart = new Chart(ctx, {
+  const chartHum = new Chart(ctxHum, {
     type: 'line',
     data: {
       labels: [],
-      datasets: [
-        {
-          label: 'Temperature (°C)',
-          borderColor: '#f85149',
-          backgroundColor: tempGrad,
-          fill: true,
-          data: [],
-          tension: 0.35,
-          pointRadius: 3,
-          pointHoverRadius: 5
-        },
-        {
-          label: 'Humidity (%)',
-          borderColor: '#58a6ff',
-          backgroundColor: humGrad,
-          fill: true,
-          data: [],
-          tension: 0.35,
-          pointRadius: 3,
-          pointHoverRadius: 5
-        }
-      ]
+      datasets: [{
+        label: 'Humidity (%)',
+        borderColor: '#58a6ff',
+        backgroundColor: humGrad,
+        fill: true,
+        data: [],
+        tension: 0.35,
+        pointRadius: 3,
+        pointHoverRadius: 5
+      }]
     },
     options: {
       animation: false,
       responsive: true,
       maintainAspectRatio: false,
       interaction: { intersect: false, mode: 'index' },
-      plugins: {
-        legend: {
-          labels: { color: '#8b949e', font: { size: 12 } }
-        }
-      },
+      plugins: { legend: { labels: { color: '#8b949e', font: { size: 12 } } } },
       scales: {
-        x: {
-          grid: { color: '#2d3a4d' },
-          ticks: { color: '#8b949e', maxTicksLimit: 8 }
-        },
-        y: {
-          min: 10,
-          max: 90,
-          grid: { color: '#2d3a4d' },
-          ticks: { color: '#8b949e' }
-        }
+        x: { grid: { color: '#2d3a4d' }, ticks: { color: '#8b949e', maxTicksLimit: 8 } },
+        y: { min: 50, max: 120, grid: { color: '#2d3a4d' }, ticks: { color: '#8b949e' } }
+      }
+    }
+  });
+
+  const ctxTemp = document.getElementById('chart-temp').getContext('2d');
+  const tempGrad = ctxTemp.createLinearGradient(0,0,0,200);
+  tempGrad.addColorStop(0,'rgba(248,81,73,.3)');
+  tempGrad.addColorStop(1,'rgba(248,81,73,0)');
+  const chartTemp = new Chart(ctxTemp, {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [{
+        label: 'Temperature (°C)',
+        borderColor: '#f85149',
+        backgroundColor: tempGrad,
+        fill: true,
+        data: [],
+        tension: 0.35,
+        pointRadius: 3,
+        pointHoverRadius: 5
+      }]
+    },
+    options: {
+      animation: false,
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { intersect: false, mode: 'index' },
+      plugins: { legend: { labels: { color: '#8b949e', font: { size: 12 } } } },
+      scales: {
+        x: { grid: { color: '#2d3a4d' }, ticks: { color: '#8b949e', maxTicksLimit: 8 } },
+        y: { min: 2, max: 70, grid: { color: '#2d3a4d' }, ticks: { color: '#8b949e' } }
       }
     }
   });
@@ -337,26 +234,34 @@ void handleRoot() {
         document.getElementById('temp').textContent = temp;
         document.getElementById('hum').textContent = hum;
 
+        const lightEl = document.getElementById('light-icon');
+        const fanEl = document.getElementById('fan-icon');
+        if (lightEl) lightEl.classList.toggle('lit', !!data.light);
+        if (fanEl) fanEl.classList.toggle('spinning', !!data.fan);
+
         const gasEl = document.getElementById('gas');
         gasEl.textContent = data.gas ? 'GAS DETECTED' : 'SAFE';
         gasEl.className = 'badge ' + (data.gas ? 'badge-danger' : 'badge-safe');
 
         if (temp !== '--' && hum !== '--') {
-          if (chart.data.labels.length > 20) {
-            chart.data.labels.shift();
-            chart.data.datasets[0].data.shift();
-            chart.data.datasets[1].data.shift();
+          if (chartHum.data.labels.length > 20) {
+            chartHum.data.labels.shift();
+            chartHum.data.datasets[0].data.shift();
+            chartTemp.data.labels.shift();
+            chartTemp.data.datasets[0].data.shift();
           }
-          chart.data.labels.push(time);
-          chart.data.datasets[0].data.push(parseFloat(data.temperature));
-          chart.data.datasets[1].data.push(parseFloat(data.humidity));
-          chart.update('none');
+          chartHum.data.labels.push(time);
+          chartHum.data.datasets[0].data.push(parseFloat(data.humidity));
+          chartTemp.data.labels.push(time);
+          chartTemp.data.datasets[0].data.push(parseFloat(data.temperature));
+          chartHum.update('none');
+          chartTemp.update('none');
         }
       })
       .catch(() => {});
   }
   updateData();
-  setInterval(updateData, 2000);
+  setInterval(updateData, 5000);
   </script>
   </body>
   </html>
@@ -390,6 +295,7 @@ void setup() {
   Serial.println(WiFi.localIP());
 
   // Set up the web server to handle different routes
+  server.on("/style.css", handleStyle);
   server.on("/data", handleData);
   server.on("/", handleRoot);
   server.on("/26/on", handleGPIO26On);
