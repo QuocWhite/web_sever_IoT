@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ESP32 IoT Monitor — Preview</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="style.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <div class="container">
+    <div class="banner">Preview mode — using simulated sensor data (no ESP32 connected)</div>
+
+    <h1><span class="status-dot"></span> ESP32 IoT Monitor</h1>
+
+    <div class="cards">
+      <div class="card">
+        <div class="card-title">Temperature</div>
+        <div class="card-value"><span id="temp">--</span><span class="card-unit"> °C</span></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Humidity</div>
+        <div class="card-value"><span id="hum">--</span><span class="card-unit"> %</span></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Gas Sensor</div>
+        <div><span id="gas" class="badge badge-safe">SAFE</span></div>
+      </div>
+    </div>
+
+    <div class="chart-card">
+      <h3>Humidity (%)</h3>
+      <div class="chart-wrap"><canvas id="chart-hum"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <h3>Temperature (°C)</h3>
+      <div class="chart-wrap"><canvas id="chart-temp"></canvas></div>
+    </div>
+
+    <div class="controls">
+      <h3>Output Control</h3>
+      <div class="gpio-row">
+        <span class="device-row">
+          <span class="device-icon device-icon-bulb" id="light-icon" aria-hidden="true">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="28" height="28"><path d="M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7z"/></svg>
+          </span>
+          <span class="gpio-label">Light (GPIO 26)</span>
+        </span>
+        <span>
+          <button class="btn btn-on" onclick="setLight(true)">ON</button>
+          <button class="btn btn-off" onclick="setLight(false)">OFF</button>
+        </span>
+      </div>
+      <div class="gpio-row">
+        <span class="device-row">
+          <span class="device-icon device-icon-fan" id="fan-icon" aria-hidden="true">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="28" height="28"><circle cx="12" cy="12" r="9"/><path d="M12 3v4m0 10v4M3 12h4m10 0h4M5.64 5.64l2.83 2.83m5.06 5.06l2.83 2.83M5.64 18.36l2.83-2.83m5.06-5.06l2.83-2.83"/></svg>
+          </span>
+          <span class="gpio-label">Fan (GPIO 27)</span>
+        </span>
+        <span>
+          <button class="btn btn-on" onclick="setFan(true)">ON</button>
+          <button class="btn btn-off" onclick="setFan(false)">OFF</button>
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  const ctxHum = document.getElementById('chart-hum').getContext('2d');
+  const humGrad = ctxHum.createLinearGradient(0,0,0,200);
+  humGrad.addColorStop(0,'rgba(88,166,255,.3)');
+  humGrad.addColorStop(1,'rgba(88,166,255,0)');
+  const chartHum = new Chart(ctxHum, {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [{
+        label: 'Humidity (%)',
+        borderColor: '#58a6ff',
+        backgroundColor: humGrad,
+        fill: true,
+        data: [],
+        tension: 0.35,
+        pointRadius: 3,
+        pointHoverRadius: 5
+      }]
+    },
+    options: {
+      animation: false,
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { intersect: false, mode: 'index' },
+      plugins: { legend: { labels: { color: '#8b949e', font: { size: 12 } } } },
+      scales: {
+        x: { grid: { color: '#2d3a4d' }, ticks: { color: '#8b949e', maxTicksLimit: 8 } },
+        y: { min: 50, max: 120, grid: { color: '#2d3a4d' }, ticks: { color: '#8b949e' } }
+      }
+    }
+  });
+
+  const ctxTemp = document.getElementById('chart-temp').getContext('2d');
+  const tempGrad = ctxTemp.createLinearGradient(0,0,0,200);
+  tempGrad.addColorStop(0,'rgba(248,81,73,.3)');
+  tempGrad.addColorStop(1,'rgba(248,81,73,0)');
+  const chartTemp = new Chart(ctxTemp, {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [{
+        label: 'Temperature (°C)',
+        borderColor: '#f85149',
+        backgroundColor: tempGrad,
+        fill: true,
+        data: [],
+        tension: 0.35,
+        pointRadius: 3,
+        pointHoverRadius: 5
+      }]
+    },
+    options: {
+      animation: false,
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { intersect: false, mode: 'index' },
+      plugins: { legend: { labels: { color: '#8b949e', font: { size: 12 } } } },
+      scales: {
+        x: { grid: { color: '#2d3a4d' }, ticks: { color: '#8b949e', maxTicksLimit: 8 } },
+        y: { min: 2, max: 70, grid: { color: '#2d3a4d' }, ticks: { color: '#8b949e' } }
+      }
+    }
+  });
+
+  let lightOn = false, fanOn = false;
+
+  function setLight(on) { lightOn = on; updateIcons(); }
+  function setFan(on) { fanOn = on; updateIcons(); }
+  function updateIcons() {
+    const li = document.getElementById('light-icon'), fi = document.getElementById('fan-icon');
+    if (li) li.classList.toggle('lit', lightOn);
+    if (fi) fi.classList.toggle('spinning', fanOn);
+  }
+
+  function mockData() {
+    const t = 20 + Math.random() * 15;
+    const h = 40 + Math.random() * 40;
+    const gas = Math.random() > 0.9;
+    return { temperature: t, humidity: h, gas: gas ? 1 : 0, light: lightOn ? 1 : 0, fan: fanOn ? 1 : 0 };
+  }
+
+  function updateData() {
+    const data = mockData();
+    const time = new Date().toLocaleTimeString();
+
+    document.getElementById('temp').textContent = data.temperature.toFixed(1);
+    document.getElementById('hum').textContent = data.humidity.toFixed(1);
+
+    lightOn = !!data.light;
+    fanOn = !!data.fan;
+    updateIcons();
+
+    const gasEl = document.getElementById('gas');
+    gasEl.textContent = data.gas ? 'GAS DETECTED' : 'SAFE';
+    gasEl.className = 'badge ' + (data.gas ? 'badge-danger' : 'badge-safe');
+
+    if (chartHum.data.labels.length > 20) {
+      chartHum.data.labels.shift();
+      chartHum.data.datasets[0].data.shift();
+      chartTemp.data.labels.shift();
+      chartTemp.data.datasets[0].data.shift();
+    }
+    chartHum.data.labels.push(time);
+    chartHum.data.datasets[0].data.push(data.humidity);
+    chartTemp.data.labels.push(time);
+    chartTemp.data.datasets[0].data.push(data.temperature);
+    chartHum.update('none');
+    chartTemp.update('none');
+  }
+
+  updateData();
+  setInterval(updateData, 5000);
+  </script>
+</body>
+</html>

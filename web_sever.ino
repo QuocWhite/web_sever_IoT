@@ -1,6 +1,7 @@
 #include <WiFi.h>
 #include <WebServer.h>
 #include <DHT.h>
+#include "style.h"
 
 // Replace with your network credentials
 const char* ssid     = "Tu nguyen";
@@ -40,7 +41,7 @@ void handleGPIO26Off() {
   handleRoot();
 }
 
-// Function to handle turning GPIO 28 on
+// Function to handle turning GPIO 27 on
 void handleGPIO27On() {
   output27State = "on";
   digitalWrite(output27, HIGH);
@@ -54,9 +55,8 @@ void handleGPIO27Off() {
   handleRoot();
 }
 
-void readMQ2() {
-  int mq2Value = digitalRead(MQ2_PIN);
-  gasState = (mq2Value == LOW) ? "GAS DETECTED " : "SAFE ";
+void handleStyle() {
+  server.send_P(200, "text/css", STYLE_CSS);
 }
 
 void handleData() {
@@ -67,7 +67,9 @@ void handleData() {
   String json = "{";
   json += "\"temperature\":" + String(t,1) + ",";
   json += "\"humidity\":" + String(h,1) + ",";
-  json += "\"gas\":" + String(mq2 == LOW ? 1 : 0);
+  json += "\"gas\":" + String(mq2 == LOW ? 1 : 0) + ",";
+  json += "\"light\":" + String(output26State == "on" ? 1 : 0) + ",";
+  json += "\"fan\":" + String(output27State == "on" ? 1 : 0);
   json += "}";
 
   server.send(200, "application/json", json);
@@ -81,142 +83,186 @@ void handleRoot() {
 
   String html = R"rawliteral(
   <!DOCTYPE html>
-  <html>
+  <html lang="en">
   <head>
+  <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ESP32 Monitor</title>
-
+  <title>ESP32 IoT Monitor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="/style.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
-  <style>
-    body {
-      font-family: Helvetica;
-      text-align: center;
-    }
-    .button {
-      background-color: #4CAF50;
-      border: none;
-      color: white;
-      padding: 14px 30px;
-      font-size: 20px;
-      cursor: pointer;
-      margin: 4px;
-    }
-    .button2 {
-      background-color: #555555;
-    }
-  </style>
   </head>
-
   <body>
-  <h1>ESP32 Web Server</h1>
+  <div class="container">
+    <h1><span class="status-dot"></span> ESP32 IoT Monitor</h1>
 
-  <h2>DHT11 Sensor</h2>
-  <p>Temperature: <strong><span id="temp">--</span> °C</strong></p>
-  <p>Humidity: <strong><span id="hum">--</span> %</strong></p>
+    <div class="cards">
+      <div class="card">
+        <div class="card-title">Temperature</div>
+        <div class="card-value"><span id="temp">--</span><span class="card-unit"> °C</span></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Humidity</div>
+        <div class="card-value"><span id="hum">--</span><span class="card-unit"> %</span></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Gas Sensor</div>
+        <div><span id="gas" class="badge )rawliteral" + String(mq2Value == LOW ? "badge-danger" : "badge-safe") + R"rawliteral("> )rawliteral" + gasState + R"rawliteral(</span></div>
+      </div>
+    </div>
 
-  <h2>MQ-2 Gas Sensor</h2>
-  <p>Status: <strong><span id="gas">)" + gasState + R"rawliteral(</span></strong></p>
+    <div class="chart-card">
+      <h3>Humidity (%)</h3>
+      <div class="chart-wrap"><canvas id="chart-hum"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <h3>Temperature (°C)</h3>
+      <div class="chart-wrap"><canvas id="chart-temp"></canvas></div>
+    </div>
 
-  <canvas id="chart" width="400" height="220"></canvas>
+    <div class="controls">
+      <h3>Output Control</h3>
+      <div class="gpio-row">
+        <span class="device-row">
+          <span class="device-icon device-icon-bulb" id="light-icon" aria-hidden="true">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="28" height="28"><path d="M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7z"/></svg>
+          </span>
+          <span class="gpio-label">Light (GPIO 26)</span>
+        </span>
+        <span>
+          <a href="/26/on" class="btn btn-on">ON</a>
+          <a href="/26/off" class="btn btn-off">OFF</a>
+        </span>
+      </div>
+      <div class="gpio-row">
+        <span class="device-row">
+          <span class="device-icon device-icon-fan" id="fan-icon" aria-hidden="true">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="28" height="28"><circle cx="12" cy="12" r="9"/><path d="M12 3v4m0 10v4M3 12h4m10 0h4M5.64 5.64l2.83 2.83m5.06 5.06l2.83 2.83M5.64 18.36l2.83-2.83m5.06-5.06l2.83-2.83"/></svg>
+          </span>
+          <span class="gpio-label">Fan (GPIO 27)</span>
+        </span>
+        <span>
+          <a href="/27/on" class="btn btn-on">ON</a>
+          <a href="/27/off" class="btn btn-off">OFF</a>
+        </span>
+      </div>
+    </div>
+  </div>
 
   <script>
-  const ctx = document.getElementById('chart').getContext('2d');
-
-  const chart = new Chart(ctx, {
+  (function(){
+    var lightOn = )rawliteral" + String(output26State == "on" ? "true" : "false") + R"rawliteral(;
+    var fanOn = )rawliteral" + String(output27State == "on" ? "true" : "false") + R"rawliteral(;
+    var li = document.getElementById('light-icon'), fi = document.getElementById('fan-icon');
+    if (li) li.classList.toggle('lit', lightOn);
+    if (fi) fi.classList.toggle('spinning', fanOn);
+  })();
+  const ctxHum = document.getElementById('chart-hum').getContext('2d');
+  const humGrad = ctxHum.createLinearGradient(0,0,0,200);
+  humGrad.addColorStop(0,'rgba(88,166,255,.3)');
+  humGrad.addColorStop(1,'rgba(88,166,255,0)');
+  const chartHum = new Chart(ctxHum, {
     type: 'line',
     data: {
       labels: [],
-      datasets: [
-        {
-          label: 'Temperature (°C)',
-          borderColor: 'red',
-          data: [],
-          tension: 0.3,
-          pointRadius: 3
-        },
-        {
-          label: 'Humidity (%)',
-          borderColor: 'blue',
-          data: [],
-          tension: 0.3,
-          pointRadius: 3
-        }
-      ]
+      datasets: [{
+        label: 'Humidity (%)',
+        borderColor: '#58a6ff',
+        backgroundColor: humGrad,
+        fill: true,
+        data: [],
+        tension: 0.35,
+        pointRadius: 3,
+        pointHoverRadius: 5
+      }]
     },
     options: {
       animation: false,
       responsive: true,
-      plugins: {
-        legend: {
-          labels: {
-            font: { size: 16 }
-          }
-        },
-        tooltip: {
-          titleFont: { size: 16 },
-          bodyFont: { size: 16 }
-        }
-      },
+      maintainAspectRatio: false,
+      interaction: { intersect: false, mode: 'index' },
+      plugins: { legend: { labels: { color: '#8b949e', font: { size: 12 } } } },
       scales: {
-        x: {
-          ticks: {
-            font: { size: 14 }
-          }
-        },
-        y: {
-          min: 10,
-          max: 90,
-          ticks: {
-            font: { size: 14 }
-          }
-        }
+        x: { grid: { color: '#2d3a4d' }, ticks: { color: '#8b949e', maxTicksLimit: 8 } },
+        y: { min: 50, max: 120, grid: { color: '#2d3a4d' }, ticks: { color: '#8b949e' } }
+      }
+    }
+  });
+
+  const ctxTemp = document.getElementById('chart-temp').getContext('2d');
+  const tempGrad = ctxTemp.createLinearGradient(0,0,0,200);
+  tempGrad.addColorStop(0,'rgba(248,81,73,.3)');
+  tempGrad.addColorStop(1,'rgba(248,81,73,0)');
+  const chartTemp = new Chart(ctxTemp, {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [{
+        label: 'Temperature (°C)',
+        borderColor: '#f85149',
+        backgroundColor: tempGrad,
+        fill: true,
+        data: [],
+        tension: 0.35,
+        pointRadius: 3,
+        pointHoverRadius: 5
+      }]
+    },
+    options: {
+      animation: false,
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { intersect: false, mode: 'index' },
+      plugins: { legend: { labels: { color: '#8b949e', font: { size: 12 } } } },
+      scales: {
+        x: { grid: { color: '#2d3a4d' }, ticks: { color: '#8b949e', maxTicksLimit: 8 } },
+        y: { min: 2, max: 70, grid: { color: '#2d3a4d' }, ticks: { color: '#8b949e' } }
       }
     }
   });
 
   function updateData() {
     fetch('/data')
-      .then(res => res.json())
+      .then(res => res.ok ? res.json() : Promise.reject())
       .then(data => {
         const time = new Date().toLocaleTimeString();
+        const temp = (data.temperature != null && !isNaN(data.temperature)) ? data.temperature.toFixed(1) : '--';
+        const hum = (data.humidity != null && !isNaN(data.humidity)) ? data.humidity.toFixed(1) : '--';
 
-        document.getElementById('temp').textContent =
-          data.temperature ?? '--';
-        document.getElementById('hum').textContent =
-          data.humidity ?? '--';
+        document.getElementById('temp').textContent = temp;
+        document.getElementById('hum').textContent = hum;
 
-        document.getElementById('gas').textContent =
-          data.gas ? 'GAS DETECTED ' : 'SAFE ';
+        const lightEl = document.getElementById('light-icon');
+        const fanEl = document.getElementById('fan-icon');
+        if (lightEl) lightEl.classList.toggle('lit', !!data.light);
+        if (fanEl) fanEl.classList.toggle('spinning', !!data.fan);
 
-        if (chart.data.labels.length > 20) {
-          chart.data.labels.shift();
-          chart.data.datasets[0].data.shift();
-          chart.data.datasets[1].data.shift();
+        const gasEl = document.getElementById('gas');
+        gasEl.textContent = data.gas ? 'GAS DETECTED' : 'SAFE';
+        gasEl.className = 'badge ' + (data.gas ? 'badge-danger' : 'badge-safe');
+
+        if (temp !== '--' && hum !== '--') {
+          if (chartHum.data.labels.length > 20) {
+            chartHum.data.labels.shift();
+            chartHum.data.datasets[0].data.shift();
+            chartTemp.data.labels.shift();
+            chartTemp.data.datasets[0].data.shift();
+          }
+          chartHum.data.labels.push(time);
+          chartHum.data.datasets[0].data.push(parseFloat(data.humidity));
+          chartTemp.data.labels.push(time);
+          chartTemp.data.datasets[0].data.push(parseFloat(data.temperature));
+          chartHum.update('none');
+          chartTemp.update('none');
         }
-
-        chart.data.labels.push(time);
-        chart.data.datasets[0].data.push(data.temperature);
-        chart.data.datasets[1].data.push(data.humidity);
-        chart.update();
-      });
+      })
+      .catch(() => {});
   }
-
-  setInterval(updateData, 2000);
+  updateData();
+  setInterval(updateData, 5000);
   </script>
-
-  <hr>
-
-  <h2>LED Control</h2>
-
-  <p>GPIO 26</p>
-  <a href="/26/on"><button class="button">ON</button></a>
-  <a href="/26/off"><button class="button button2">OFF</button></a>
-
-  <p>GPIO 27</p>
-  <a href="/27/on"><button class="button">ON</button></a>
-  <a href="/27/off"><button class="button button2">OFF</button></a>
-
   </body>
   </html>
   )rawliteral";
@@ -249,6 +295,7 @@ void setup() {
   Serial.println(WiFi.localIP());
 
   // Set up the web server to handle different routes
+  server.on("/style.css", handleStyle);
   server.on("/data", handleData);
   server.on("/", handleRoot);
   server.on("/26/on", handleGPIO26On);
