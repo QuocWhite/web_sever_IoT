@@ -1,68 +1,125 @@
 #include <WiFi.h>
 #include <WebServer.h>
 #include <DHT.h>
-#include "style.h"
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
 
-// Replace with your network credentials
-const char* ssid     = "Tu nguyen";
-const char* password = "88888888";
+#define LCD_ADDRESS 0x27
+#define LCD_COLS 16
+#define LCD_ROWS 2
+#define GPIO_OUTPUT_26 26
+#define GPIO_OUTPUT_27 27
+#define GPIO_MQ2_SENSOR 18
+#define GPIO_GAS_LED 2
+#define GPIO_DHT_SENSOR 5
+#define DHTPIN GPIO_DHT_SENSOR
+#define DHTTYPE DHT11
+#define SERIAL_BAUD_RATE 115200
+#define WIFI_CONNECT_TIMEOUT_MS 10000
+#define WIFI_CONNECT_TIMEOUT_DEFAULT_MS 15000
+#define WIFI_RETRY_DELAY_MS 500
+#define SERIAL_COMMAND_DELAY_MS 10
+#define GAS_LED_BLINK_INTERVAL_MS 500
+#define LCD_UPDATE_INTERVAL_MS 2000
+#define HTTP_OK 200
+#define HTTP_PORT 80
+#define CHART_MAX_DATA_POINTS 20
+#define CHART_UPDATE_INTERVAL_MS 5000
+#define CHART_HUMIDITY_MIN 50
+#define CHART_HUMIDITY_MAX 120
+#define CHART_TEMPERATURE_MIN 2
+#define CHART_TEMPERATURE_MAX 70
 
-// Assign output variables to GPIO pins
-const int output26 = 26;
-const int output27 = 27;
+const char* ssid = "Quoc";
+const char* password = "12345678h";
+
+const char STYLE_CSS[] PROGMEM = R"css(
+:root{--bg:#0f1419;--surface:#1a2332;--border:#2d3a4d;--text:#e6edf3;--text-muted:#8b949e;--accent:#58a6ff;--accent-green:#3fb950;--accent-orange:#d29922;--accent-red:#f85149}
+*{box-sizing:border-box}
+body{font-family:'Outfit',sans-serif;background:var(--bg);color:var(--text);margin:0;padding:24px;min-height:100vh}
+.banner{background:rgba(210,153,34,.15);border:1px solid var(--accent-orange);border-radius:8px;padding:12px 16px;margin-bottom:20px;font-size:.9rem;color:var(--accent-orange)}
+.container{max-width:720px;margin:0 auto}
+h1{font-size:1.75rem;font-weight:700;margin-bottom:24px;display:flex;align-items:center;gap:10px}
+h1::before{content:'';width:8px;height:28px;background:linear-gradient(180deg,var(--accent),var(--accent-green));border-radius:4px}
+.status-dot{width:8px;height:8px;border-radius:50%;background:var(--accent-green);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:16px;margin-bottom:24px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;text-align:center}
+.card-title{font-size:.8rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px}
+.card-value{font-family:'JetBrains Mono',monospace;font-size:1.75rem;font-weight:600}
+.card-unit{font-size:.9rem;color:var(--text-muted)}
+.badge{display:inline-block;padding:6px 14px;border-radius:20px;font-size:.85rem;font-weight:600}
+.badge-safe{background:rgba(63,185,80,.2);color:var(--accent-green)}
+.badge-danger{background:rgba(248,81,73,.2);color:var(--accent-red);animation:blink-red 0.8s ease-in-out infinite}
+@keyframes blink-red{0%,100%{opacity:1}50%{opacity:0.3}}
+.chart-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:24px}
+.chart-card h3{font-size:1rem;font-weight:600;margin:0 0 16px 0;color:var(--text-muted)}
+.chart-wrap{height:200px;position:relative}
+.controls{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px}
+.controls h3{font-size:1rem;font-weight:600;margin:0 0 20px 0;color:var(--text-muted)}
+.gpio-row{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--border)}
+.gpio-row:last-of-type{border-bottom:none}
+.gpio-label{font-family:'JetBrains Mono',monospace;font-size:.9rem}
+.btn{display:inline-block;padding:10px 24px;border-radius:8px;font-family:'Outfit',sans-serif;font-size:.9rem;font-weight:600;text-decoration:none;cursor:pointer;border:none;transition:transform .15s,opacity .15s}
+.btn:hover{opacity:.9;transform:translateY(-1px)}
+.btn-on{background:var(--accent-green);color:#0d1117}
+.btn-off{background:var(--border);color:var(--text);margin-left:8px}
+.device-row{display:flex;align-items:center;gap:12px}
+.device-icon{display:inline-flex;align-items:center;justify-content:center;color:var(--text-muted);transition:color .3s,filter .3s}
+.device-icon svg{display:block}
+.device-icon-bulb.lit{color:#ffd54f;filter:drop-shadow(0 0 8px rgba(255,213,79,.6))}
+.device-icon-fan.spinning svg{animation:fan-spin 1s linear infinite}
+@keyframes fan-spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+.device-icon-fan.spinning{color:var(--accent)}
+)css";
+
+DHT dht(DHTPIN, DHTTYPE);
+WebServer server(HTTP_PORT);
+LiquidCrystal_I2C lcd(LCD_ADDRESS, LCD_COLS, LCD_ROWS);
+
 String output26State = "off";
 String output27State = "off";
+String inputLine = "";
 
-// DHT11 sensor settings
-#define DHTPIN 5      // D5 (GPIO5)
-#define DHTTYPE DHT11 // DHT 11
-DHT dht(DHTPIN, DHTTYPE);
-float temperature = 0.0;
-float humidity = 0.0;
-
-// MQ-02 sensor
-#define MQ2_PIN 18   // D18
-String gasState = "SAFE";
-
-// Create a web server object
-WebServer server(80);
-
-// Function to handle turning GPIO 26 on
 void handleGPIO26On() {
   output26State = "on";
-  digitalWrite(output26, HIGH);
+  digitalWrite(GPIO_OUTPUT_26, HIGH);
   handleRoot();
 }
 
-// Function to handle turning GPIO 26 off
 void handleGPIO26Off() {
   output26State = "off";
-  digitalWrite(output26, LOW);
+  digitalWrite(GPIO_OUTPUT_26, LOW);
   handleRoot();
 }
 
-// Function to handle turning GPIO 27 on
 void handleGPIO27On() {
   output27State = "on";
-  digitalWrite(output27, HIGH);
+  digitalWrite(GPIO_OUTPUT_27, HIGH);
   handleRoot();
 }
 
-// Function to handle turning GPIO 27 off
 void handleGPIO27Off() {
   output27State = "off";
-  digitalWrite(output27, LOW);
+  digitalWrite(GPIO_OUTPUT_27, LOW);
   handleRoot();
 }
 
 void handleStyle() {
-  server.send_P(200, "text/css", STYLE_CSS);
+  server.send_P(HTTP_OK, "text/css", STYLE_CSS);
 }
 
 void handleData() {
   float h = dht.readHumidity();
   float t = dht.readTemperature();
-  int mq2 = digitalRead(MQ2_PIN);
+  int mq2 = digitalRead(GPIO_MQ2_SENSOR);
+
+  Serial.print("T:");
+  Serial.print(!isnan(t) ? t : 0, 1);
+  Serial.print("|H:");
+  Serial.print(!isnan(h) ? h : 0, 1);
+  Serial.print("|G:");
+  Serial.println(mq2 == LOW ? 1 : 0);
 
   String json = "{";
   json += "\"temperature\":" + String(t,1) + ",";
@@ -72,14 +129,12 @@ void handleData() {
   json += "\"fan\":" + String(output27State == "on" ? 1 : 0);
   json += "}";
 
-  server.send(200, "application/json", json);
+  server.send(HTTP_OK, "application/json", json);
 }
 
-// Function to handle the root URL and show the current states
 void handleRoot() {
-  // Read MQ-2 digital signal
-  int mq2Value = digitalRead(MQ2_PIN);
-  String gasState = (mq2Value == LOW) ? "GAS DETECTED " : "SAFE ";
+  int mq2Value = digitalRead(GPIO_MQ2_SENSOR);
+  String gasStateStr = (mq2Value == LOW) ? "GAS DETECTED " : "SAFE ";
 
   String html = R"rawliteral(
   <!DOCTYPE html>
@@ -109,7 +164,7 @@ void handleRoot() {
       </div>
       <div class="card">
         <div class="card-title">Gas Sensor</div>
-        <div><span id="gas" class="badge )rawliteral" + String(mq2Value == LOW ? "badge-danger" : "badge-safe") + R"rawliteral("> )rawliteral" + gasState + R"rawliteral(</span></div>
+        <div><span id="gas" class="badge )rawliteral" + String(mq2Value == LOW ? "badge-danger" : "badge-safe") + R"rawliteral("> )rawliteral" + gasStateStr + R"rawliteral(</span></div>
       </div>
     </div>
 
@@ -186,7 +241,7 @@ void handleRoot() {
       plugins: { legend: { labels: { color: '#8b949e', font: { size: 12 } } } },
       scales: {
         x: { grid: { color: '#2d3a4d' }, ticks: { color: '#8b949e', maxTicksLimit: 8 } },
-        y: { min: 50, max: 120, grid: { color: '#2d3a4d' }, ticks: { color: '#8b949e' } }
+        y: { min: )rawliteral" + String(CHART_HUMIDITY_MIN) + R"rawliteral(, max: )rawliteral" + String(CHART_HUMIDITY_MAX) + R"rawliteral(, grid: { color: '#2d3a4d' }, ticks: { color: '#8b949e' } }
       }
     }
   });
@@ -218,7 +273,7 @@ void handleRoot() {
       plugins: { legend: { labels: { color: '#8b949e', font: { size: 12 } } } },
       scales: {
         x: { grid: { color: '#2d3a4d' }, ticks: { color: '#8b949e', maxTicksLimit: 8 } },
-        y: { min: 2, max: 70, grid: { color: '#2d3a4d' }, ticks: { color: '#8b949e' } }
+        y: { min: )rawliteral" + String(CHART_TEMPERATURE_MIN) + R"rawliteral(, max: )rawliteral" + String(CHART_TEMPERATURE_MAX) + R"rawliteral(, grid: { color: '#2d3a4d' }, ticks: { color: '#8b949e' } }
       }
     }
   });
@@ -244,7 +299,7 @@ void handleRoot() {
         gasEl.className = 'badge ' + (data.gas ? 'badge-danger' : 'badge-safe');
 
         if (temp !== '--' && hum !== '--') {
-          if (chartHum.data.labels.length > 20) {
+          if (chartHum.data.labels.length > )rawliteral" + String(CHART_MAX_DATA_POINTS) + R"rawliteral() {
             chartHum.data.labels.shift();
             chartHum.data.datasets[0].data.shift();
             chartTemp.data.labels.shift();
@@ -261,40 +316,16 @@ void handleRoot() {
       .catch(() => {});
   }
   updateData();
-  setInterval(updateData, 5000);
+  setInterval(updateData, )rawliteral" + String(CHART_UPDATE_INTERVAL_MS) + R"rawliteral();
   </script>
   </body>
   </html>
   )rawliteral";
 
-  server.send(200, "text/html", html);
+  server.send(HTTP_OK, "text/html", html);
 }
 
-void setup() {
-  Serial.begin(115200);
-
-  // Initialize the output variables as outputs
-  pinMode(output26, OUTPUT);
-  pinMode(output27, OUTPUT);
-  // Set outputs to LOW
-  digitalWrite(output26, LOW);
-  digitalWrite(output27, LOW);
-  pinMode(MQ2_PIN, INPUT);
-
-  // Connect to Wi-Fi network
-  Serial.print("Connecting to ");
-  Serial.println(ssid);
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.println("");
-  Serial.println("WiFi connected.");
-  Serial.println("IP address: ");
-  Serial.println(WiFi.localIP());
-
-  // Set up the web server to handle different routes
+void setupWebServer() {
   server.on("/style.css", handleStyle);
   server.on("/data", handleData);
   server.on("/", handleRoot);
@@ -302,13 +333,205 @@ void setup() {
   server.on("/26/off", handleGPIO26Off);
   server.on("/27/on", handleGPIO27On);
   server.on("/27/off", handleGPIO27Off);
-
-  // Start the web server
   server.begin();
+}
+
+void setupLCD() {
+  Wire.begin();
+  lcd.init();
+  lcd.backlight();
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("ESP32 IoT Monitor");
+  lcd.setCursor(0, 1);
+  lcd.print("Initializing...");
+  delay(1500);
+  lcd.clear();
+}
+
+void updateLCD(float temperature, float humidity, int gasDetected, bool lightOn, bool fanOn) {
+  lcd.clear();
+
+  lcd.setCursor(0, 0);
+  lcd.print("T:");
+  lcd.print(temperature, 1);
+  lcd.print((char)223);
+  lcd.print("C H:");
+  lcd.print(humidity, 1);
+  lcd.print("%");
+
+  lcd.setCursor(0, 1);
+  if (gasDetected) {
+    lcd.print("GAS:!");
+  } else {
+    lcd.print("GAS:OK");
+  }
+
+  lcd.setCursor(8, 1);
+  lcd.print("L:");
+  lcd.print(lightOn ? "1" : "0");
+  lcd.print(" F:");
+  lcd.print(fanOn ? "1" : "0");
+}
+
+bool extractQuoted(const String& cmd, int index, String& result) {
+  int count = 0;
+  int start = -1;
+
+  for (int i = 0; i < cmd.length(); i++) {
+    if (cmd[i] == '"') {
+      if (count == index * 2) {
+        start = i + 1;
+      } else if (count == index * 2 + 1) {
+        result = cmd.substring(start, i);
+        return true;
+      }
+      count++;
+    }
+  }
+  return false;
+}
+
+void handleCommand(String cmd) {
+  if (cmd.startsWith("WIFI ")) {
+    String ssidStr, passStr;
+    if (!extractQuoted(cmd, 0, ssidStr) || !extractQuoted(cmd, 1, passStr)) {
+      Serial.println("Invalid format!");
+      Serial.println("Use: WIFI \"SSID\" \"PASSWORD\"");
+      return;
+    }
+    Serial.print("Connecting to: ");
+    Serial.println(ssidStr);
+    WiFi.begin(ssidStr.c_str(), passStr.c_str());
+    unsigned long start = millis();
+    while (WiFi.status() != WL_CONNECTED && millis() - start < WIFI_CONNECT_TIMEOUT_DEFAULT_MS) {
+      delay(WIFI_RETRY_DELAY_MS);
+      Serial.print(".");
+    }
+    Serial.println();
+    if (WiFi.status() == WL_CONNECTED) {
+      Serial.println("WiFi connected!");
+      Serial.print("IP: ");
+      Serial.println(WiFi.localIP());
+    } else {
+      Serial.println("WiFi connection failed");
+    }
+  }
+  else if (cmd == "STATUS") {
+    if (WiFi.status() == WL_CONNECTED) {
+      Serial.println("WiFi Status: CONNECTED");
+      Serial.print("SSID: ");
+      Serial.println(WiFi.SSID());
+      Serial.print("IP: ");
+      Serial.println(WiFi.localIP());
+    } else {
+      Serial.println("WiFi Status: NOT CONNECTED");
+    }
+  }
+  else if (cmd == "DISCONNECT") {
+    WiFi.disconnect(true);
+    Serial.println("WiFi disconnected");
+  }
+  else {
+    Serial.println("Unknown command");
+  }
+}
+
+bool tryConnect(const char* ssidConn, const char* passwordConn, unsigned long timeout) {
+  Serial.print("Connecting to ");
+  Serial.println(ssidConn);
+  WiFi.begin(ssidConn, passwordConn);
+  unsigned long start = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - start < timeout) {
+    delay(WIFI_RETRY_DELAY_MS);
+    Serial.print(".");
+  }
+  Serial.println();
+  return WiFi.status() == WL_CONNECTED;
+}
+
+void waitForWiFiCommand() {
+  Serial.println("\n=== WiFi Connection Failed ===");
+  Serial.println("Please enter WiFi credentials via serial:");
+  Serial.println("Format: WIFI \"SSID\" \"PASSWORD\"");
+  Serial.println("================================\n");
+
+  bool connected = false;
+  while (!connected) {
+    while (Serial.available()) {
+      char c = Serial.read();
+      if (c == '\n') {
+        inputLine.trim();
+        if (inputLine.length() > 0) {
+          handleCommand(inputLine);
+          connected = (WiFi.status() == WL_CONNECTED);
+        }
+        inputLine = "";
+      } else {
+        inputLine += c;
+      }
+    }
+    delay(SERIAL_COMMAND_DELAY_MS);
+  }
+
+  Serial.println("WiFi connected!");
+  Serial.print("IP: ");
+  Serial.println(WiFi.localIP());
+}
+
+void setup() {
+  Serial.begin(SERIAL_BAUD_RATE);
+
+  pinMode(GPIO_OUTPUT_26, OUTPUT);
+  pinMode(GPIO_OUTPUT_27, OUTPUT);
+  digitalWrite(GPIO_OUTPUT_26, LOW);
+  digitalWrite(GPIO_OUTPUT_27, LOW);
+  pinMode(GPIO_MQ2_SENSOR, INPUT);
+  pinMode(GPIO_GAS_LED, OUTPUT);
+  digitalWrite(GPIO_GAS_LED, LOW);
+
+  if (!tryConnect(ssid, password, WIFI_CONNECT_TIMEOUT_MS)) {
+    waitForWiFiCommand();
+  } else {
+    Serial.println("WiFi connected.");
+    Serial.println("IP address: ");
+    Serial.println(WiFi.localIP());
+  }
+
+  setupWebServer();
   Serial.println("HTTP server started");
+
+  setupLCD();
+  Serial.println("LCD initialized");
 }
 
 void loop() {
-  // Handle incoming client requests
   server.handleClient();
+
+  int mq2 = digitalRead(GPIO_MQ2_SENSOR);
+  if (mq2 == LOW) {
+    unsigned long currentMillis = millis();
+    static unsigned long previousMillis = 0;
+    static bool ledState = false;
+    
+    if (currentMillis - previousMillis >= GAS_LED_BLINK_INTERVAL_MS) {
+      previousMillis = currentMillis;
+      ledState = !ledState;
+      digitalWrite(GPIO_GAS_LED, ledState ? HIGH : LOW);
+    }
+  } else {
+    digitalWrite(GPIO_GAS_LED, LOW);
+  }
+
+  unsigned long now = millis();
+  static unsigned long lastLCDUpdate = 0;
+  if (now - lastLCDUpdate >= LCD_UPDATE_INTERVAL_MS) {
+    lastLCDUpdate = now;
+    float h = dht.readHumidity();
+    float t = dht.readTemperature();
+    float temp = !isnan(t) ? t : 0;
+    float hum = !isnan(h) ? h : 0;
+    int gas = (mq2 == LOW) ? 1 : 0;
+    updateLCD(temp, hum, gas, output26State == "on", output27State == "on");
+  }
 }
