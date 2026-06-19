@@ -1,5 +1,5 @@
-#include <WiFi.h>
-#include <WebServer.h>
+#include <ESP8266WiFi.h>
+#include <ESP8266WebServer.h>
 #include <DHT.h>
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
@@ -7,11 +7,11 @@
 #define LCD_ADDRESS 0x27
 #define LCD_COLS 16
 #define LCD_ROWS 2
-#define GPIO_OUTPUT_26 26
-#define GPIO_OUTPUT_27 27
-#define GPIO_MQ2_SENSOR 18
-#define GPIO_GAS_LED 2
-#define GPIO_DHT_SENSOR 5
+#define GPIO_OUTPUT_26 12  // D6 on NodeMCU (was GPIO 26 on ESP32)
+#define GPIO_OUTPUT_27 13  // D7 on NodeMCU (was GPIO 27 on ESP32)
+#define GPIO_MQ2_SENSOR 14 // D5 on NodeMCU (was GPIO 18 on ESP32)
+#define GPIO_GAS_LED 2     // D4 on NodeMCU (built-in LED, same as ESP32 GPIO 2)
+#define GPIO_DHT_SENSOR 5  // D1 on NodeMCU (same as ESP32 GPIO 5)
 #define DHTPIN GPIO_DHT_SENSOR
 #define DHTTYPE DHT11
 #define SERIAL_BAUD_RATE 115200
@@ -25,13 +25,12 @@
 #define HTTP_PORT 80
 #define CHART_MAX_DATA_POINTS 20
 #define CHART_UPDATE_INTERVAL_MS 5000
-#define CHART_HUMIDITY_MIN 30
-#define CHART_HUMIDITY_MAX 100
+#define CHART_HUMIDITY_MIN 50
+#define CHART_HUMIDITY_MAX 120
 #define CHART_TEMPERATURE_MIN 2
 #define CHART_TEMPERATURE_MAX 70
 #define TEMP_THRESHOLD 35.0
 #define GAS_DETECTED 1
-#define MINUTE 1
 const char* PHONE_NUMBER = "+84352480097";
 //const char* PHONE_NUMBER = "+84345487298";
 
@@ -78,36 +77,9 @@ h1::before{content:'';width:8px;height:28px;background:linear-gradient(180deg,va
 .device-icon-fan.spinning{color:var(--accent)}
 )css";
 
-struct KalmanFilter {
-  float estimate;
-  float errorEstimate;
-  float errorMeasurement;
-  float errorProcess;
-
-  KalmanFilter() {
-    estimate = 0;
-    errorEstimate = 1;
-    errorMeasurement = 4;
-    errorProcess = 0.01;
-  }
-
-  float update(float measurement) {
-    if (isnan(measurement) || measurement <= 0) {
-      return estimate;
-    }
-    float kalmanGain = errorEstimate / (errorEstimate + errorMeasurement);
-    estimate = estimate + kalmanGain * (measurement - estimate);
-    errorEstimate = (1 - kalmanGain) * errorEstimate + errorProcess;
-    return estimate;
-  }
-};
-
 DHT dht(DHTPIN, DHTTYPE);
-WebServer server(HTTP_PORT);
+ESP8266WebServer server(HTTP_PORT);
 LiquidCrystal_I2C lcd(LCD_ADDRESS, LCD_COLS, LCD_ROWS);
-
-KalmanFilter kalmanTemp;
-KalmanFilter kalmanHumid;
 
 String output26State = "off";
 String output27State = "off";
@@ -145,10 +117,8 @@ void handleStyle() {
 }
 
 void handleData() {
-  float hRaw = dht.readHumidity();
-  float tRaw = dht.readTemperature();
-  float h = kalmanHumid.update(hRaw);
-  float t = kalmanTemp.update(tRaw);
+  float h = dht.readHumidity();
+  float t = dht.readTemperature();
   int mq2 = digitalRead(GPIO_MQ2_SENSOR);
 
   Serial.print("T:");
@@ -179,7 +149,7 @@ void handleRoot() {
   <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ESP32 IoT Monitor</title>
+  <title>ESP8266 IoT Monitor</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -188,7 +158,7 @@ void handleRoot() {
   </head>
   <body>
   <div class="container">
-    <h1><span class="status-dot"></span> ESP32 IoT Monitor</h1>
+    <h1><span class="status-dot"></span> ESP8266 IoT Monitor</h1>
 
     <div class="cards">
       <div class="card">
@@ -221,7 +191,7 @@ void handleRoot() {
           <span class="device-icon device-icon-bulb" id="light-icon" aria-hidden="true">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="28" height="28"><path d="M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7z"/></svg>
           </span>
-          <span class="gpio-label">Light (GPIO 26)</span>
+          <span class="gpio-label">Light (GPIO 12)</span>
         </span>
         <span>
           <a href="/26/on" class="btn btn-on">ON</a>
@@ -233,7 +203,7 @@ void handleRoot() {
           <span class="device-icon device-icon-fan" id="fan-icon" aria-hidden="true">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="28" height="28"><circle cx="12" cy="12" r="9"/><path d="M12 3v4m0 10v4M3 12h4m10 0h4M5.64 5.64l2.83 2.83m5.06 5.06l2.83 2.83M5.64 18.36l2.83-2.83m5.06-5.06l2.83-2.83"/></svg>
           </span>
-          <span class="gpio-label">Fan (GPIO 27)</span>
+          <span class="gpio-label">Fan (GPIO 13)</span>
         </span>
         <span>
           <a href="/27/on" class="btn btn-on">ON</a>
@@ -379,7 +349,7 @@ void setupLCD() {
   lcd.backlight();
   lcd.clear();
   lcd.setCursor(0, 0);
-  lcd.print("ESP32 IoT Monitor");
+  lcd.print("ESP8266 IoT Mon");
   lcd.setCursor(0, 1);
   lcd.print("Initializing...");
   delay(1500);
@@ -541,6 +511,8 @@ void setup() {
   pinMode(GPIO_GAS_LED, OUTPUT);
   digitalWrite(GPIO_GAS_LED, LOW);
 
+  WiFi.mode(WIFI_STA);
+
   if (!tryConnect(ssid, password, WIFI_CONNECT_TIMEOUT_MS)) {
     waitForWiFiCommand();
   } else {
@@ -553,18 +525,6 @@ void setup() {
   Serial.println("HTTP server started");
 
   setupLCD();
-
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print("IP Address:");
-  lcd.setCursor(0, 1);
-  if (WiFi.status() == WL_CONNECTED) {
-    lcd.print(WiFi.localIP().toString());
-  } else {
-    lcd.print("Not connected");
-  }
-  delay(20000);
-  lcd.clear();
   Serial.println("LCD initialized");
 
   Serial.print("PHONE:");
@@ -576,20 +536,20 @@ void loop() {
 
   int mq2 = digitalRead(GPIO_MQ2_SENSOR);
   static unsigned long lastGasDetectedTime = 0;
-  
+
   if (mq2 == LOW) {
     lastGasDetectedTime = millis();
-    
+
     if (digitalRead(GPIO_OUTPUT_27) == LOW) {
       digitalWrite(GPIO_OUTPUT_27, HIGH);
       output27State = "on";
       fanAutoByGas = true;
     }
-    
+
     unsigned long currentMillis = millis();
     static unsigned long previousMillis = 0;
     static bool ledState = false;
-    
+
     if (currentMillis - previousMillis >= GAS_LED_BLINK_INTERVAL_MS) {
       previousMillis = currentMillis;
       ledState = !ledState;
@@ -597,7 +557,7 @@ void loop() {
     }
   } else {
     digitalWrite(GPIO_GAS_LED, LOW);
-    
+
     if (digitalRead(GPIO_OUTPUT_27) == HIGH && fanAutoByGas) {
       if (millis() - lastGasDetectedTime >= 5000) {
         digitalWrite(GPIO_OUTPUT_27, LOW);
@@ -611,12 +571,10 @@ void loop() {
   static unsigned long lastLCDUpdate = 0;
   if (now - lastLCDUpdate >= LCD_UPDATE_INTERVAL_MS) {
     lastLCDUpdate = now;
-    float hRaw = dht.readHumidity();
-    float tRaw = dht.readTemperature();
-    float t = kalmanTemp.update(tRaw);
-    float h = kalmanHumid.update(hRaw);
-    float temp = t;
-    float hum = h;
+    float h = dht.readHumidity();
+    float t = dht.readTemperature();
+    float temp = !isnan(t) ? t : 0;
+    float hum = !isnan(h) ? h : 0;
     int gas = (mq2 == LOW) ? 1 : 0;
     updateLCD(temp, hum, gas);
 

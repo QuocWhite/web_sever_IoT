@@ -1,3 +1,18 @@
+/*
+ * BẢNG GHÉP NỐI CHÂN (PIN MAPPING)
+ *
+ * GPIO | Linh kiện     | Loại    | Chức năng
+ * ------|---------------|---------|------------------------------
+ * 2    | Đèn báo nhiệt | OUTPUT  | LED cảnh báo nhiệt độ cao
+ * 5    | DHT11         | INPUT   | Cảm biến nhiệt độ & độ ẩm
+ * 18   | MQ-2          | INPUT   | Cảm biến khí gas (THẤP = có gas)
+ * 34   | Cảm biến mức nước | INPUT | Cảm biến mức nước (analog)
+ * 21   | LCD SDA       | I2C     | Dữ liệu I2C (LCD 0x27)
+ * 22   | LCD SCL       | I2C     | Xung nhịp I2C (LCD 0x27)
+ * 26   | Đèn           | OUTPUT  | Relay đèn
+ * 27   | Quạt          | OUTPUT  | Relay quạt
+ */
+
 #include <WiFi.h>
 #include <WebServer.h>
 #include <DHT.h>
@@ -9,9 +24,10 @@
 #define LCD_ROWS 2
 #define GPIO_OUTPUT_26 26
 #define GPIO_OUTPUT_27 27
-#define GPIO_MQ2_SENSOR 18
-#define GPIO_GAS_LED 2
-#define GPIO_DHT_SENSOR 5
+#define GPIO_WATER_SENSOR 34
+#define GPIO_GAS_SENSOR 18
+#define GPIO_TEMP_LED 2
+#define GPIO_DHT_SENSOR 5  // DHT11 data pin
 #define DHTPIN GPIO_DHT_SENSOR
 #define DHTTYPE DHT11
 #define SERIAL_BAUD_RATE 115200
@@ -19,7 +35,8 @@
 #define WIFI_CONNECT_TIMEOUT_DEFAULT_MS 15000
 #define WIFI_RETRY_DELAY_MS 500
 #define SERIAL_COMMAND_DELAY_MS 10
-#define GAS_LED_BLINK_INTERVAL_MS 500
+#define TEMP_THRESHOLD 35.0
+#define WATER_LEVEL_THRESHOLD 50
 #define LCD_UPDATE_INTERVAL_MS 2000
 #define HTTP_OK 200
 #define HTTP_PORT 80
@@ -29,14 +46,10 @@
 #define CHART_HUMIDITY_MAX 100
 #define CHART_TEMPERATURE_MIN 2
 #define CHART_TEMPERATURE_MAX 70
-#define TEMP_THRESHOLD 35.0
-#define GAS_DETECTED 1
-#define MINUTE 1
-const char* PHONE_NUMBER = "+84352480097";
-//const char* PHONE_NUMBER = "+84345487298";
 
-const char* ssid = "Quoc";
-const char* password = "12345678h";
+
+const char* ssid = "Sy";
+const char* password = "11111111";
 
 const char STYLE_CSS[] PROGMEM = R"css(
 :root{--bg:#0f1419;--surface:#1a2332;--border:#2d3a4d;--text:#e6edf3;--text-muted:#8b949e;--accent:#58a6ff;--accent-green:#3fb950;--accent-orange:#d29922;--accent-red:#f85149}
@@ -112,7 +125,7 @@ KalmanFilter kalmanHumid;
 String output26State = "off";
 String output27State = "off";
 String inputLine = "";
-bool fanAutoByGas = false;
+bool autoFanActive = false;
 
 void handleGPIO26On() {
   output26State = "on";
@@ -128,14 +141,14 @@ void handleGPIO26Off() {
 
 void handleGPIO27On() {
   output27State = "on";
-  fanAutoByGas = false;
+  autoFanActive = false;
   digitalWrite(GPIO_OUTPUT_27, HIGH);
   handleRoot();
 }
 
 void handleGPIO27Off() {
   output27State = "off";
-  fanAutoByGas = false;
+  autoFanActive = false;
   digitalWrite(GPIO_OUTPUT_27, LOW);
   handleRoot();
 }
@@ -149,19 +162,14 @@ void handleData() {
   float tRaw = dht.readTemperature();
   float h = kalmanHumid.update(hRaw);
   float t = kalmanTemp.update(tRaw);
-  int mq2 = digitalRead(GPIO_MQ2_SENSOR);
-
-  Serial.print("T:");
-  Serial.print(!isnan(t) ? t : 0, 1);
-  Serial.print("|H:");
-  Serial.print(!isnan(h) ? h : 0, 1);
-  Serial.print("|G:");
-  Serial.println(mq2 == LOW ? 1 : 0);
+  int waterLevel = analogRead(GPIO_WATER_SENSOR);
+  int gas = digitalRead(GPIO_GAS_SENSOR);
 
   String json = "{";
   json += "\"temperature\":" + String(t,1) + ",";
   json += "\"humidity\":" + String(h,1) + ",";
-  json += "\"gas\":" + String(mq2 == LOW ? 1 : 0) + ",";
+  json += "\"waterLevel\":" + String(waterLevel) + ",";
+  json += "\"gas\":" + String(gas == LOW ? 1 : 0) + ",";
   json += "\"light\":" + String(digitalRead(GPIO_OUTPUT_26) == HIGH ? 1 : 0) + ",";
   json += "\"fan\":" + String(digitalRead(GPIO_OUTPUT_27) == HIGH ? 1 : 0);
   json += "}";
@@ -170,12 +178,14 @@ void handleData() {
 }
 
 void handleRoot() {
-  int mq2Value = digitalRead(GPIO_MQ2_SENSOR);
-  String gasStateStr = (mq2Value == LOW) ? "GAS DETECTED " : "SAFE ";
+  int waterLevelValue = analogRead(GPIO_WATER_SENSOR);
+  int gasValue = digitalRead(GPIO_GAS_SENSOR);
+  String waterStateStr = (waterLevelValue < WATER_LEVEL_THRESHOLD) ? "Be Can " : "Be Day ";
+  String gasStateStr = (gasValue == LOW) ? "PHAT HIEN gas " : "AN TOAN ";
 
   String html = R"rawliteral(
   <!DOCTYPE html>
-  <html lang="en">
+  <html lang="vi">
   <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -188,44 +198,49 @@ void handleRoot() {
   </head>
   <body>
   <div class="container">
-    <h1><span class="status-dot"></span> ESP32 IoT Monitor</h1>
+    <h1><span class="status-dot"></span> TRẠM QUAN TRẮC ESP32</h1>
 
     <div class="cards">
       <div class="card">
-        <div class="card-title">Temperature</div>
+        <div class="card-title">Nhiệt độ</div>
         <div class="card-value"><span id="temp">--</span><span class="card-unit"> °C</span></div>
       </div>
       <div class="card">
-        <div class="card-title">Humidity</div>
+        <div class="card-title">Độ ẩm</div>
         <div class="card-value"><span id="hum">--</span><span class="card-unit"> %</span></div>
       </div>
       <div class="card">
-        <div class="card-title">Gas Sensor</div>
-        <div><span id="gas" class="badge )rawliteral" + String(mq2Value == LOW ? "badge-danger" : "badge-safe") + R"rawliteral("> )rawliteral" + gasStateStr + R"rawliteral(</span></div>
+        <div class="card-title">MỨC NƯỚC TRONG BỂ</div>
+        <div><span class="card-value"><span id="waterLevel">--</span></span></div>
+        <div><span id="waterStatus" class="badge )rawliteral" + String(waterLevelValue < WATER_LEVEL_THRESHOLD ? "badge-danger" : "badge-safe") + R"rawliteral("> )rawliteral" + waterStateStr + R"rawliteral(</span></div>
+      </div>
+      <div class="card">
+        <div class="card-title">CẢM BIẾN GAS</div>
+        <div><span id="gas" class="badge )rawliteral" + String(gasValue == LOW ? "badge-danger" : "badge-safe") + R"rawliteral("> )rawliteral" + gasStateStr + R"rawliteral(</span></div>
       </div>
     </div>
 
     <div class="chart-card">
-      <h3>Humidity (%)</h3>
+      <h3>Độ ẩm (%)</h3>
       <div class="chart-wrap"><canvas id="chart-hum"></canvas></div>
     </div>
     <div class="chart-card">
-      <h3>Temperature (°C)</h3>
+      <h3>Nhiệt độ (°C)</h3>
       <div class="chart-wrap"><canvas id="chart-temp"></canvas></div>
     </div>
 
     <div class="controls">
-      <h3>Output Control</h3>
+      <h3>Điều khiển thiết bị đầu ra</h3>
       <div class="gpio-row">
         <span class="device-row">
           <span class="device-icon device-icon-bulb" id="light-icon" aria-hidden="true">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="28" height="28"><path d="M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7z"/></svg>
           </span>
-          <span class="gpio-label">Light (GPIO 26)</span>
+          <span class="gpio-label">Đèn (GPIO 26)</span>
         </span>
         <span>
-          <a href="/26/on" class="btn btn-on">ON</a>
-          <a href="/26/off" class="btn btn-off">OFF</a>
+          <a href="/26/on" class="btn btn-on">BẬT</a>
+          <a href="/26/off" class="btn btn-off">TẮT</a>
         </span>
       </div>
       <div class="gpio-row">
@@ -233,11 +248,11 @@ void handleRoot() {
           <span class="device-icon device-icon-fan" id="fan-icon" aria-hidden="true">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="28" height="28"><circle cx="12" cy="12" r="9"/><path d="M12 3v4m0 10v4M3 12h4m10 0h4M5.64 5.64l2.83 2.83m5.06 5.06l2.83 2.83M5.64 18.36l2.83-2.83m5.06-5.06l2.83-2.83"/></svg>
           </span>
-          <span class="gpio-label">Fan (GPIO 27)</span>
+          <span class="gpio-label">Quạt (GPIO 27)</span>
         </span>
         <span>
-          <a href="/27/on" class="btn btn-on">ON</a>
-          <a href="/27/off" class="btn btn-off">OFF</a>
+          <a href="/27/on" class="btn btn-on">BẬT</a>
+          <a href="/27/off" class="btn btn-off">TẮT</a>
         </span>
       </div>
     </div>
@@ -260,7 +275,7 @@ void handleRoot() {
     data: {
       labels: [],
       datasets: [{
-        label: 'Humidity (%)',
+        label: 'Độ ẩm (%)',
         borderColor: '#58a6ff',
         backgroundColor: humGrad,
         fill: true,
@@ -292,7 +307,7 @@ void handleRoot() {
     data: {
       labels: [],
       datasets: [{
-        label: 'Temperature (°C)',
+        label: 'Nhiệt độ (°C)',
         borderColor: '#f85149',
         backgroundColor: tempGrad,
         fill: true,
@@ -331,8 +346,14 @@ void handleRoot() {
         if (lightEl) lightEl.classList.toggle('lit', !!data.light);
         if (fanEl) fanEl.classList.toggle('spinning', !!data.fan);
 
+        document.getElementById('waterLevel').textContent = data.waterLevel;
+        const waterEl = document.getElementById('waterStatus');
+        const waterLow = data.waterLevel < 50;
+        waterEl.textContent = waterLow ? 'Be Can' : 'Be Day';
+        waterEl.className = 'badge ' + (waterLow ? 'badge-danger' : 'badge-safe');
+
         const gasEl = document.getElementById('gas');
-        gasEl.textContent = data.gas ? 'GAS DETECTED' : 'SAFE';
+        gasEl.textContent = data.gas ? 'PHAT HIEN gas' : 'AN TOAN';
         gasEl.className = 'badge ' + (data.gas ? 'badge-danger' : 'badge-safe');
 
         if (temp !== '--' && hum !== '--') {
@@ -381,35 +402,38 @@ void setupLCD() {
   lcd.setCursor(0, 0);
   lcd.print("ESP32 IoT Monitor");
   lcd.setCursor(0, 1);
-  lcd.print("Initializing...");
+  lcd.print("Khoi tao...");
   delay(1500);
   lcd.clear();
 }
 
-void updateLCD(float temperature, float humidity, int gasDetected) {
+void updateLCD(float temperature, float humidity, int waterLevel, int gasDetected) {
   bool lightOn = digitalRead(GPIO_OUTPUT_26) == HIGH;
   bool fanOn = digitalRead(GPIO_OUTPUT_27) == HIGH;
   lcd.clear();
 
   lcd.setCursor(0, 0);
-  lcd.print("T:");
+  lcd.print("N:");
   lcd.print(temperature, 1);
   lcd.print((char)223);
-  lcd.print("C H:");
+  lcd.print("A:");
   lcd.print(humidity, 1);
   lcd.print("%");
 
   lcd.setCursor(0, 1);
+  lcd.print("N:");
+  lcd.print(waterLevel);
+  lcd.print(" ");
   if (gasDetected) {
-    lcd.print("GAS:!");
+    lcd.print("G:!");
   } else {
-    lcd.print("GAS:OK");
+    lcd.print("G:O");
   }
 
   lcd.setCursor(8, 1);
-  lcd.print("L:");
+  lcd.print("D:");
   lcd.print(lightOn ? "1" : "0");
-  lcd.print(" F:");
+  lcd.print(" Q:");
   lcd.print(fanOn ? "1" : "0");
 }
 
@@ -432,18 +456,6 @@ bool extractQuoted(const String& cmd, int index, String& result) {
 }
 
 void handleCommand(String cmd) {
-  if (cmd.startsWith("PHONE ")) {
-    String phoneStr;
-    if (!extractQuoted(cmd, 0, phoneStr)) {
-      Serial.println("Invalid format!");
-      Serial.println("Use: PHONE \"+84352480097\"");
-      return;
-    }
-    PHONE_NUMBER = phoneStr.c_str();
-    Serial.print("Phone number set to: ");
-    Serial.println(PHONE_NUMBER);
-    return;
-  }
   if (cmd.startsWith("WIFI ")) {
     String ssidStr, passStr;
     if (!extractQuoted(cmd, 0, ssidStr) || !extractQuoted(cmd, 1, passStr)) {
@@ -537,9 +549,9 @@ void setup() {
   pinMode(GPIO_OUTPUT_27, OUTPUT);
   digitalWrite(GPIO_OUTPUT_26, LOW);
   digitalWrite(GPIO_OUTPUT_27, LOW);
-  pinMode(GPIO_MQ2_SENSOR, INPUT);
-  pinMode(GPIO_GAS_LED, OUTPUT);
-  digitalWrite(GPIO_GAS_LED, LOW);
+  pinMode(GPIO_TEMP_LED, OUTPUT);
+  digitalWrite(GPIO_TEMP_LED, LOW);
+  pinMode(GPIO_GAS_SENSOR, INPUT);
 
   if (!tryConnect(ssid, password, WIFI_CONNECT_TIMEOUT_MS)) {
     waitForWiFiCommand();
@@ -553,58 +565,49 @@ void setup() {
   Serial.println("HTTP server started");
 
   setupLCD();
-
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print("IP Address:");
-  lcd.setCursor(0, 1);
-  if (WiFi.status() == WL_CONNECTED) {
-    lcd.print(WiFi.localIP().toString());
-  } else {
-    lcd.print("Not connected");
-  }
-  delay(20000);
-  lcd.clear();
   Serial.println("LCD initialized");
 
-  Serial.print("PHONE:");
-  Serial.println(PHONE_NUMBER);
+  if (WiFi.status() == WL_CONNECTED) {
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("IP:");
+    lcd.setCursor(0, 1);
+    lcd.print(WiFi.localIP().toString());
+    delay(3000);
+    lcd.clear();
+  }
 }
 
 void loop() {
   server.handleClient();
 
-  int mq2 = digitalRead(GPIO_MQ2_SENSOR);
-  static unsigned long lastGasDetectedTime = 0;
+  int waterLevel = analogRead(GPIO_WATER_SENSOR);
+  int gas = digitalRead(GPIO_GAS_SENSOR);
+  bool gasDetected = (gas == LOW);
+  bool waterHigh = (waterLevel > WATER_LEVEL_THRESHOLD);
+  static unsigned long lastEventTime = 0;
   
-  if (mq2 == LOW) {
-    lastGasDetectedTime = millis();
+  if (gasDetected) {
+    lastEventTime = millis();
     
     if (digitalRead(GPIO_OUTPUT_27) == LOW) {
       digitalWrite(GPIO_OUTPUT_27, HIGH);
       output27State = "on";
-      fanAutoByGas = true;
-    }
-    
-    unsigned long currentMillis = millis();
-    static unsigned long previousMillis = 0;
-    static bool ledState = false;
-    
-    if (currentMillis - previousMillis >= GAS_LED_BLINK_INTERVAL_MS) {
-      previousMillis = currentMillis;
-      ledState = !ledState;
-      digitalWrite(GPIO_GAS_LED, ledState ? HIGH : LOW);
+      autoFanActive = true;
     }
   } else {
-    digitalWrite(GPIO_GAS_LED, LOW);
-    
-    if (digitalRead(GPIO_OUTPUT_27) == HIGH && fanAutoByGas) {
-      if (millis() - lastGasDetectedTime >= 5000) {
+    if (digitalRead(GPIO_OUTPUT_27) == HIGH && autoFanActive) {
+      if (millis() - lastEventTime >= 5000) {
         digitalWrite(GPIO_OUTPUT_27, LOW);
         output27State = "off";
-        fanAutoByGas = false;
+        autoFanActive = false;
       }
     }
+  }
+  
+  {
+    float tNow = kalmanTemp.update(dht.readTemperature());
+    digitalWrite(GPIO_TEMP_LED, tNow > TEMP_THRESHOLD ? HIGH : LOW);
   }
 
   unsigned long now = millis();
@@ -617,18 +620,6 @@ void loop() {
     float h = kalmanHumid.update(hRaw);
     float temp = t;
     float hum = h;
-    int gas = (mq2 == LOW) ? 1 : 0;
-    updateLCD(temp, hum, gas);
-
-    if (temp > TEMP_THRESHOLD || gas == GAS_DETECTED) {
-      Serial.print("PHONE:");
-      Serial.println(PHONE_NUMBER);
-      Serial.print("T:");
-      Serial.print(temp, 1);
-      Serial.print("|H:");
-      Serial.print(hum, 1);
-      Serial.print("|G:");
-      Serial.println(gas);
-    }
+    updateLCD(temp, hum, waterLevel, gasDetected ? 1 : 0);
   }
 }
